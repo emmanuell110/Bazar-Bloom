@@ -1,17 +1,23 @@
 import React, { useState, useEffect } from 'react';
 import {
   Menu, X, Search, Filter, Plus, Trash2, Download,
-  ShoppingBag, LogOut, Package, Upload, RefreshCw, Flower2
+  LogOut, Package, Upload, RefreshCw, User
 } from 'lucide-react';
 import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
 import { supabase } from './SupabaseClient';
 
+// Importación del logo de la tienda
+import logoImg from './assets/logo.jpeg';
+
 export default function App() {
-  // --- ESTADOS DE AUTENTICACIÓN ---
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [loginEmail, setLoginEmail] = useState('');
-  const [loginPassword, setLoginPassword] = useState('');
+  // --- ESTADOS DE AUTENTICACIÓN (LOGIN SIMPLE POR USUARIO) ---
+  const [isAuthenticated, setIsAuthenticated] = useState(() => {
+    return localStorage.getItem('bazar_bloom_auth') === 'true';
+  });
+  const [username, setUsername] = useState(() => {
+    return localStorage.getItem('bazar_bloom_username') || '';
+  });
+  const [loginInput, setLoginInput] = useState('');
 
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [activeTab, setActiveTab] = useState('productos');
@@ -120,13 +126,22 @@ export default function App() {
     }
   };
 
+  // Manejo del Login Simple
   const handleLogin = (e) => {
     e.preventDefault();
-    if (loginEmail && loginPassword) setIsAuthenticated(true);
+    if (loginInput.trim()) {
+      setIsAuthenticated(true);
+      setUsername(loginInput.trim());
+      localStorage.setItem('bazar_bloom_auth', 'true');
+      localStorage.setItem('bazar_bloom_username', loginInput.trim());
+    }
   };
 
   const handleLogout = () => {
     setIsAuthenticated(false);
+    setUsername('');
+    localStorage.removeItem('bazar_bloom_auth');
+    localStorage.removeItem('bazar_bloom_username');
     setIsSidebarOpen(false);
   };
 
@@ -293,22 +308,30 @@ export default function App() {
     return matchesSearch && matchesCategory && matchesGender;
   });
 
-  // Generación del PDF Bazar Bloom (Texto Oscuro Legible)
+  // Generación del PDF Bloom Bazar con Logo Oficial Integrado
   const downloadPDFCatalog = async () => {
     try {
       setIsLoading(true);
       const doc = new jsPDF();
 
-      const drawLogo = (pdf, x, y, scale = 1) => {
-        pdf.saveGraphicsState();
-        pdf.setFillColor(2, 132, 199); // Sky Blue 600
-        pdf.circle(x, y, 7 * scale, 'F');
-        pdf.setFillColor(255, 255, 255);
-        pdf.circle(x - 2 * scale, y - 2 * scale, 2.5 * scale, 'F');
-        pdf.circle(x + 2 * scale, y - 2 * scale, 2.5 * scale, 'F');
-        pdf.circle(x, y + 2 * scale, 2.5 * scale, 'F');
-        pdf.restoreGraphicsState();
+      // Helper para convertir la imagen del logo local a formato Base64 para jsPDF
+      const getLogoBase64 = () => {
+        return new Promise((resolve) => {
+          const img = new Image();
+          img.src = logoImg;
+          img.onload = () => {
+            const canvas = document.createElement('canvas');
+            canvas.width = img.width;
+            canvas.height = img.height;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0);
+            resolve(canvas.toDataURL('image/png'));
+          };
+          img.onerror = () => resolve(null);
+        });
       };
+
+      const logoBase64 = await getLogoBase64();
 
       const sections = [
         { key: 'Mujer', title: 'ROPA PARA MUJER' },
@@ -328,35 +351,35 @@ export default function App() {
         });
       };
 
-      // PORTADA
-      doc.setFillColor(240, 249, 255);
+      // --- PORTADA DEL PDF ---
+      doc.setFillColor(253, 242, 248); // Fondo rosa suave
       doc.rect(0, 0, 210, 297, 'F');
 
-      doc.setFillColor(2, 132, 199);
-      doc.rect(0, 0, 210, 8, 'F');
+      // Dibujar Logo Grande en la Portada
+      if (logoBase64) {
+        doc.addImage(logoBase64, 'PNG', 65, 45, 80, 80);
+      }
 
-      drawLogo(doc, 105, 90, 3.5);
-
-      doc.setTextColor(15, 23, 42); // Texto Oscuro
-      doc.setFontSize(30);
+      doc.setTextColor(15, 23, 42);
+      doc.setFontSize(28);
       doc.setFont('helvetica', 'bold');
-      doc.text('BAZAR BLOOM', 105, 125, { align: 'center' });
+      doc.text('BLOOM BAZAR', 105, 140, { align: 'center' });
 
-      doc.setFontSize(15);
+      doc.setFontSize(14);
       doc.setFont('helvetica', 'normal');
-      doc.setTextColor(2, 132, 199);
-      doc.text('Catálogo Oficial de Productos', 105, 137, { align: 'center' });
+      doc.setTextColor(219, 39, 119);
+      doc.text('Catálogo Oficial de Productos', 105, 150, { align: 'center' });
 
-      doc.setDrawColor(2, 132, 199);
+      doc.setDrawColor(219, 39, 119);
       doc.setLineWidth(0.8);
-      doc.line(75, 147, 135, 147);
+      doc.line(75, 158, 135, 158);
 
       doc.setFontSize(10);
       doc.setTextColor(71, 85, 105);
       const hoy = new Date().toLocaleDateString('es-MX', { year: 'numeric', month: 'long', day: 'numeric' });
       doc.text(`Edición: ${hoy}`, 105, 260, { align: 'center' });
 
-      // SECCIONES
+      // --- SECCIONES Y PRODUCTOS ---
       for (const section of sections) {
         const sectionProducts = products.filter(p => {
           if (section.key === 'Otros') return p.category === 'Otros' || p.gender === 'Otros';
@@ -367,22 +390,26 @@ export default function App() {
 
         doc.addPage();
 
-        drawLogo(doc, 20, 15, 1);
+        // Encabezado con Logo Pequeño
+        if (logoBase64) {
+          doc.addImage(logoBase64, 'PNG', 14, 10, 16, 16);
+        }
+
         doc.setFontSize(13);
         doc.setFont('helvetica', 'bold');
         doc.setTextColor(15, 23, 42);
-        doc.text('Bazar Bloom', 30, 17);
+        doc.text('Bloom Bazar', 33, 20);
 
         doc.setFontSize(8);
         doc.setFont('helvetica', 'normal');
         doc.setTextColor(71, 85, 105);
-        doc.text('Catálogo de Inventario', 196, 17, { align: 'right' });
+        doc.text('Catálogo de Inventario', 196, 20, { align: 'right' });
 
         doc.setDrawColor(226, 232, 240);
         doc.setLineWidth(0.5);
-        doc.line(14, 23, 196, 23);
+        doc.line(14, 28, 196, 28);
 
-        let yPos = 35;
+        let yPos = 40;
         doc.setTextColor(15, 23, 42);
         doc.setFontSize(15);
         doc.setFont('helvetica', 'bold');
@@ -402,22 +429,26 @@ export default function App() {
 
           if (col === 0 && i > 0 && yPos + cardHeight > 280) {
             doc.addPage();
-            drawLogo(doc, 20, 15, 1);
+
+            if (logoBase64) {
+              doc.addImage(logoBase64, 'PNG', 14, 10, 16, 16);
+            }
+
             doc.setFontSize(13);
             doc.setFont('helvetica', 'bold');
             doc.setTextColor(15, 23, 42);
-            doc.text('Bazar Bloom', 30, 17);
+            doc.text('Bloom Bazar', 33, 20);
 
             doc.setFontSize(8);
             doc.setFont('helvetica', 'normal');
             doc.setTextColor(71, 85, 105);
-            doc.text('Catálogo de Inventario', 196, 17, { align: 'right' });
+            doc.text('Catálogo de Inventario', 196, 20, { align: 'right' });
 
             doc.setDrawColor(226, 232, 240);
             doc.setLineWidth(0.5);
-            doc.line(14, 23, 196, 23);
+            doc.line(14, 28, 196, 28);
 
-            yPos = 35;
+            yPos = 40;
           }
 
           doc.setDrawColor(226, 232, 240);
@@ -435,7 +466,7 @@ export default function App() {
               try {
                 doc.addImage(imgElement, 'JPEG', imgX, imgY, imgWidth, imgHeight);
               } catch (e) {
-                console.log("Error al cargar imagen:", e);
+                console.log("Error al cargar imagen de producto:", e);
               }
             }
           }
@@ -451,7 +482,7 @@ export default function App() {
           textY += 5;
           doc.setFontSize(8);
           doc.setFont('helvetica', 'bold');
-          doc.setTextColor(2, 132, 199);
+          doc.setTextColor(219, 39, 119);
           doc.text(`${(prod.brand || 'N/A').toUpperCase()} • ${prod.category}`, xPos + 5, textY);
 
           textY += 6;
@@ -482,7 +513,7 @@ export default function App() {
               doc.text(`• Talla ${v.size}:`, xPos + 7, textY);
 
               doc.setFont('helvetica', 'bold');
-              doc.setTextColor(2, 132, 199);
+              doc.setTextColor(219, 39, 119);
               doc.text(`$${v.price}`, xPos + 45, textY);
 
               textY += 4.5;
@@ -495,7 +526,7 @@ export default function App() {
         }
       }
 
-      doc.save('catalogo_bazar_bloom.pdf');
+      doc.save('catalogo_bloom_bazar.pdf');
     } catch (err) {
       console.error("Error PDF:", err);
       alert(`Error al generar el PDF: ${err.message}`);
@@ -504,44 +535,36 @@ export default function App() {
     }
   };
 
-  // Login
+  // --- FORMULARIO DE LOGIN SIN VERIFICACIÓN ---
   if (!isAuthenticated) {
     return (
-      <div className="min-h-screen bg-sky-50 flex items-center justify-center p-4">
-        <div className="max-w-md w-full bg-white rounded-3xl shadow-xl p-8 border border-sky-100">
-          <div className="text-center mb-8">
-            <div className="w-16 h-16 bg-sky-100 text-sky-600 rounded-2xl flex items-center justify-center mx-auto mb-4 border border-sky-200">
-              <Flower2 size={36} />
-            </div>
-            <h2 className="text-2xl font-bold text-slate-900">Inventario Bazar Bloom</h2>
-            <p className="text-slate-500 text-sm mt-1">Ingresa tus credenciales para administrar</p>
+      <div className="min-h-screen bg-pink-50 flex items-center justify-center p-4">
+        <div className="max-w-md w-full bg-white rounded-3xl shadow-xl p-8 border border-pink-100 text-center">
+          <div className="mb-6 flex justify-center">
+            <img src={logoImg} alt="Bloom Bazar Logo" className="h-44 w-auto object-contain" />
           </div>
 
-          <form onSubmit={handleLogin} className="space-y-4">
+          <h2 className="text-2xl font-bold text-slate-900">Bienvenido al Inventario</h2>
+          <p className="text-slate-500 text-sm mt-1 mb-6">Ingresa tu nombre de usuario para acceder</p>
+
+          <form onSubmit={handleLogin} className="space-y-4 text-left">
             <div>
-              <label className="block text-xs font-semibold text-slate-700 uppercase mb-1">Correo Electrónico</label>
-              <input
-                type="email"
-                required
-                value={loginEmail}
-                onChange={(e) => setLoginEmail(e.target.value)}
-                placeholder="Ingresa tu correo"
-                className="w-full px-4 py-3 rounded-xl border border-slate-200 text-sm focus:ring-2 focus:ring-sky-400 bg-slate-50 text-slate-800"
-              />
+              <label className="block text-xs font-semibold text-slate-700 uppercase mb-1">Nombre de Usuario</label>
+              <div className="relative">
+                <User className="absolute left-3 top-3.5 text-slate-400" size={18} />
+                <input
+                  type="text"
+                  required
+                  value={loginInput}
+                  onChange={(e) => setLoginInput(e.target.value)}
+                  placeholder="Ej. Emman"
+                  className="w-full pl-10 pr-4 py-3 rounded-xl border border-slate-200 text-sm focus:ring-2 focus:ring-pink-400 bg-slate-50 text-slate-800"
+                />
+              </div>
             </div>
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 uppercase mb-1">Contraseña</label>
-              <input
-                type="password"
-                required
-                value={loginPassword}
-                onChange={(e) => setLoginPassword(e.target.value)}
-                placeholder="Ingresa tu contraseña"
-                className="w-full px-4 py-3 rounded-xl border border-slate-200 text-sm focus:ring-2 focus:ring-sky-400 bg-slate-50 text-slate-800"
-              />
-            </div>
-            <button type="submit" className="w-full bg-sky-600 text-white font-medium py-3 rounded-xl text-sm shadow-md hover:bg-sky-700 transition">
-              Iniciar Sesión
+
+            <button type="submit" className="w-full bg-pink-600 text-white font-medium py-3 rounded-xl text-sm shadow-md hover:bg-pink-700 transition">
+              Entrar al Sistema
             </button>
           </form>
         </div>
@@ -551,51 +574,55 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col md:flex-row">
+      {/* MENÚ LATERAL */}
       <aside className={`fixed inset-y-0 left-0 z-50 w-64 bg-slate-900 text-white transform transition-transform duration-300 ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} md:relative md:translate-x-0`}>
         <div className="p-5 flex justify-between items-center border-b border-slate-800">
-          <div className="flex items-center gap-2.5">
-            <div className="p-1.5 bg-sky-500/20 rounded-lg text-sky-400">
-              <Flower2 size={22} />
-            </div>
-            <span className="font-bold text-lg text-white">Bazar Bloom</span>
+          <div className="flex items-center gap-3">
+            <img src={logoImg} alt="Logo" className="h-10 w-auto rounded-md bg-white p-1" />
+            <span className="font-bold text-base text-white">Bloom Bazar</span>
           </div>
           <button onClick={() => setIsSidebarOpen(false)} className="md:hidden text-slate-400"><X size={24} /></button>
         </div>
 
         <nav className="p-4 space-y-2">
-          <button onClick={() => { setActiveTab('productos'); setIsSidebarOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition ${activeTab === 'productos' ? 'bg-sky-600 text-white shadow-sm' : 'text-slate-400 hover:bg-slate-800'}`}>
+          <button onClick={() => { setActiveTab('productos'); setIsSidebarOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition ${activeTab === 'productos' ? 'bg-pink-600 text-white shadow-sm' : 'text-slate-400 hover:bg-slate-800'}`}>
             <Package size={20} /> Catálogo / Productos
           </button>
-          <button onClick={() => { setActiveTab('gestion'); setIsSidebarOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition ${activeTab === 'gestion' ? 'bg-sky-600 text-white shadow-sm' : 'text-slate-400 hover:bg-slate-800'}`}>
+          <button onClick={() => { setActiveTab('gestion'); setIsSidebarOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition ${activeTab === 'gestion' ? 'bg-pink-600 text-white shadow-sm' : 'text-slate-400 hover:bg-slate-800'}`}>
             <Plus size={20} /> Agregar / Editar / Borrar
           </button>
-          <button onClick={() => { setActiveTab('catalogo'); setIsSidebarOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition ${activeTab === 'catalogo' ? 'bg-sky-600 text-white shadow-sm' : 'text-slate-400 hover:bg-slate-800'}`}>
+          <button onClick={() => { setActiveTab('catalogo'); setIsSidebarOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition ${activeTab === 'catalogo' ? 'bg-pink-600 text-white shadow-sm' : 'text-slate-400 hover:bg-slate-800'}`}>
             <Download size={20} /> Exportar Catálogo PDF
           </button>
         </nav>
 
-        <div className="absolute bottom-0 left-0 right-0 p-4 border-t border-slate-800">
+        <div className="absolute bottom-0 left-0 right-0 p-4 border-t border-slate-800 space-y-3">
+          <div className="flex items-center gap-2 px-2 text-xs text-slate-400">
+            <User size={14} /> Usuario: <span className="font-semibold text-white">{username}</span>
+          </div>
           <button onClick={handleLogout} className="w-full flex items-center justify-center gap-2 text-rose-400 hover:bg-rose-950/40 py-2.5 rounded-xl text-sm transition">
             <LogOut size={18} /> Cerrar Sesión
           </button>
         </div>
       </aside>
 
+      {/* ÁREA PRINCIPAL */}
       <div className="flex-1 flex flex-col min-w-0">
         <header className="bg-white border-b border-slate-200 px-4 py-3 flex justify-between items-center sticky top-0 z-10">
           <button onClick={() => setIsSidebarOpen(true)} className="p-2 text-slate-700 md:hidden"><Menu size={24} /></button>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
+            <img src={logoImg} alt="Logo" className="h-8 w-auto md:hidden" />
             <h1 className="text-lg font-bold text-slate-900 capitalize">{activeTab}</h1>
-            <span className="text-xs text-slate-500 hidden sm:inline">• Inventario Bazar Bloom</span>
+            <span className="text-xs text-slate-500 hidden sm:inline">• Inventario Bloom Bazar</span>
           </div>
 
           <div className="flex items-center gap-2">
             <button
               onClick={fetchProducts}
-              className="p-1.5 text-slate-500 hover:text-sky-600 transition rounded-lg hover:bg-slate-100"
+              className="p-1.5 text-slate-500 hover:text-pink-600 transition rounded-lg hover:bg-slate-100"
               title="Recargar datos de Supabase"
             >
-              <RefreshCw size={18} className={isLoading ? "animate-spin text-sky-600" : ""} />
+              <RefreshCw size={18} className={isLoading ? "animate-spin text-pink-600" : ""} />
             </button>
             <span className="text-xs bg-emerald-50 text-emerald-700 px-2.5 py-1 rounded-full font-semibold border border-emerald-200">
               ● Supabase Cloud
@@ -613,8 +640,8 @@ export default function App() {
                     key={gender}
                     onClick={() => setGenderFilter(gender)}
                     className={`pb-3 px-4 font-semibold text-sm border-b-2 transition-colors ${genderFilter === gender
-                        ? 'border-sky-600 text-sky-600'
-                        : 'border-transparent text-slate-500 hover:text-slate-800'
+                      ? 'border-pink-600 text-pink-600'
+                      : 'border-transparent text-slate-500 hover:text-slate-800'
                       }`}
                   >
                     {gender}
@@ -625,7 +652,7 @@ export default function App() {
               <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-col md:flex-row gap-4">
                 <div className="relative flex-1">
                   <Search className="absolute left-3 top-3 text-slate-400" size={20} />
-                  <input type="text" placeholder="Buscar por nombre o marca..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 text-sm focus:ring-2 focus:ring-sky-400 bg-white text-slate-800" />
+                  <input type="text" placeholder="Buscar por nombre o marca..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 text-sm focus:ring-2 focus:ring-pink-400 bg-white text-slate-800" />
                 </div>
                 <div className="flex items-center gap-2">
                   <Filter size={20} className="text-slate-400" />
@@ -638,7 +665,7 @@ export default function App() {
 
               {isLoading && (
                 <div className="text-center py-12 text-slate-500 font-medium text-sm">
-                  Cargando productos de Bazar Bloom...
+                  Cargando productos de Bloom Bazar...
                 </div>
               )}
 
@@ -659,11 +686,8 @@ export default function App() {
 
                     <div className="p-5 flex-1 flex flex-col justify-between">
                       <div>
-                        {/* MARCA EN AZUL CIELO OSCURO LEGIBLE */}
-                        <span className="text-xs uppercase font-bold tracking-wider text-sky-700">{prod.brand}</span>
-                        {/* NOMBRE EN NEGRO/GRIS OSCURO */}
+                        <span className="text-xs uppercase font-bold tracking-wider text-pink-600">{prod.brand}</span>
                         <h3 className="text-lg font-bold text-slate-900 mt-1">{prod.name}</h3>
-                        {/* CATEGORÍA EN GRIS MEDIO BASTANTE LEGIBLE */}
                         <p className="text-xs text-slate-600 font-medium mb-3">{prod.category}</p>
 
                         {prod.category === 'Otros' ? (
@@ -681,7 +705,7 @@ export default function App() {
                               <div key={idx} className="flex justify-between items-center text-xs bg-slate-50 px-3 py-2 rounded-lg border border-slate-200/60">
                                 <span className="font-semibold text-slate-800">Talla: {v.size}</span>
                                 <span className="text-slate-600 font-medium">{v.stock} disp.</span>
-                                <span className="font-bold text-sky-700">${v.price}</span>
+                                <span className="font-bold text-pink-600">${v.price}</span>
                               </div>
                             ))}
                           </div>
@@ -696,6 +720,7 @@ export default function App() {
 
           {activeTab === 'gestion' && (
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+              {/* FORMULARIO AGREGAR PRODUCTO */}
               <div className="lg:col-span-2 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
                 <h2 className="text-lg font-bold text-slate-900 mb-6">Agregar Nuevo Producto</h2>
 
@@ -707,7 +732,7 @@ export default function App() {
                     </div>
                     <div>
                       <label className="block text-xs font-semibold text-slate-700 uppercase mb-1">Marca</label>
-                      <input type="text" required value={newProduct.brand} onChange={(e) => setNewProduct({ ...newProduct, brand: e.target.value })} placeholder="Ej. Bazar Bloom / Zara" className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm bg-white text-slate-800" />
+                      <input type="text" required value={newProduct.brand} onChange={(e) => setNewProduct({ ...newProduct, brand: e.target.value })} placeholder="Ej. Bloom Bazar / Zara" className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm bg-white text-slate-800" />
                     </div>
                   </div>
 
@@ -740,8 +765,8 @@ export default function App() {
 
                   <div>
                     <label className="block text-xs font-semibold text-slate-700 uppercase mb-1">Subir Foto a Supabase Storage</label>
-                    <label className="flex items-center justify-center gap-2 border-2 border-dashed border-slate-300 hover:border-sky-500 rounded-2xl p-4 cursor-pointer text-slate-600 bg-slate-50 transition">
-                      <Upload size={20} className="text-sky-600" />
+                    <label className="flex items-center justify-center gap-2 border-2 border-dashed border-slate-300 hover:border-pink-500 rounded-2xl p-4 cursor-pointer text-slate-600 bg-slate-50 transition">
+                      <Upload size={20} className="text-pink-600" />
                       <span className="text-sm font-medium">{selectedFile ? `Foto seleccionada: ${selectedFile.name}` : 'Haz clic para seleccionar foto de tu dispositivo'}</span>
                       <input type="file" accept="image/*" onChange={handleImageFileChange} className="hidden" />
                     </label>
@@ -774,7 +799,7 @@ export default function App() {
                     <div className="border-t border-slate-100 pt-4 mt-4">
                       <div className="flex justify-between items-center mb-3">
                         <label className="block text-xs font-bold text-slate-800 uppercase">Tallas y Existencias</label>
-                        <button type="button" onClick={handleAddVariant} className="text-xs text-sky-600 font-semibold flex items-center gap-1 hover:text-sky-800">
+                        <button type="button" onClick={handleAddVariant} className="text-xs text-pink-600 font-semibold flex items-center gap-1 hover:text-pink-800">
                           <Plus size={14} /> Otra Talla
                         </button>
                       </div>
@@ -792,12 +817,13 @@ export default function App() {
                     </div>
                   )}
 
-                  <button type="submit" disabled={isLoading} className="w-full bg-sky-600 text-white font-medium py-3 rounded-xl text-sm mt-4 hover:bg-sky-700 transition shadow-md disabled:opacity-50">
+                  <button type="submit" disabled={isLoading} className="w-full bg-pink-600 text-white font-medium py-3 rounded-xl text-sm mt-4 hover:bg-pink-700 transition shadow-md disabled:opacity-50">
                     {isLoading ? 'Guardando en Supabase...' : 'Guardar Producto en Nube'}
                   </button>
                 </form>
               </div>
 
+              {/* SECCIÓN EDITAR STOCK / ELIMINAR */}
               <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
                 <h2 className="text-lg font-bold text-slate-900 mb-4">Editar Stock / Eliminar</h2>
                 <div className="space-y-4 max-h-[500px] overflow-y-auto">
@@ -853,12 +879,12 @@ export default function App() {
 
           {activeTab === 'catalogo' && (
             <div className="max-w-2xl mx-auto bg-white p-8 rounded-3xl border border-slate-200 text-center shadow-sm">
-              <div className="w-16 h-16 bg-sky-50 text-sky-600 rounded-2xl flex items-center justify-center mx-auto mb-4 border border-sky-100">
+              <div className="w-16 h-16 bg-pink-50 text-pink-600 rounded-2xl flex items-center justify-center mx-auto mb-4 border border-pink-100">
                 <Download size={32} />
               </div>
               <h2 className="text-xl font-bold text-slate-900">Descargar Catálogo PDF</h2>
-              <p className="text-slate-500 text-sm mt-2 mb-6">Genera tu reporte en PDF seccionado y con la portada oficial de Bazar Bloom.</p>
-              <button onClick={downloadPDFCatalog} className="bg-sky-600 text-white px-6 py-3 rounded-xl flex items-center gap-2 mx-auto text-sm hover:bg-sky-700 transition shadow-md">
+              <p className="text-slate-500 text-sm mt-2 mb-6">Genera tu reporte en PDF seccionado y con la portada oficial de Bloom Bazar.</p>
+              <button onClick={downloadPDFCatalog} className="bg-pink-600 text-white px-6 py-3 rounded-xl flex items-center gap-2 mx-auto text-sm hover:bg-pink-700 transition shadow-md">
                 <Download size={20} /> Generar y Descargar PDF
               </button>
             </div>
